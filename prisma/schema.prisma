@@ -1,0 +1,624 @@
+// Prisma schema for Eco System Order App
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  VENDOR
+  ADMIN
+}
+
+enum VendorStatus {
+  PENDING
+  APPROVED
+  SUSPENDED
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  PROCESSING
+  PACKED
+  SHIPPED
+  READY_FOR_PICKUP
+  DELIVERED
+  PICKED_UP
+  RETURN_REQUESTED
+  RETURN_APPROVED
+  RETURNED
+  REFUNDED
+  CANCELED
+}
+
+enum PaymentProvider {
+  STRIPE
+  WAVE_MONEY
+  KBZPAY
+}
+
+enum PaymentStatus {
+  REQUIRES_ACTION
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+enum NotificationType {
+  ORDER_STATUS_CHANGED
+  RETURN_STATUS_CHANGED
+  NEW_MESSAGE
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+}
+
+enum NotificationDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum VendorLedgerEntryType {
+  CREDIT
+  DEBIT
+}
+
+enum VendorPayoutBatchStatus {
+  PREPARED
+  PROCESSING
+  COMPLETED
+}
+
+enum VendorPayoutItemStatus {
+  READY
+  SKIPPED
+  PAID
+}
+
+enum ReturnRequestStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  RECEIVED
+  REFUNDED
+}
+
+enum FulfillmentType {
+  SHIPPING
+  PICKUP
+}
+
+model User {
+  id              String    @id @default(cuid())
+  role            Role
+  email           String    @unique
+  passwordHash    String
+  phone           String?
+  locale          String
+  emailVerifiedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  vendorsOwned            Vendor[]                 @relation("VendorOwner")
+  vendorMemberships       VendorMember[]
+  addresses               Address[]
+  carts                   Cart[]
+  orders                  Order[]
+  refreshTokens           RefreshToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  notifications           Notification[]
+  chatMessages            ChatMessage[]
+  chatReadStates          ChatReadState[]
+  chatThreadsAsCustomer   ChatThread[]            @relation("CustomerThreads")
+  wishlistItems           WishlistItem[]
+}
+
+model Vendor {
+  id            String       @id @default(cuid())
+  ownerUserId   String
+  status        VendorStatus
+  name          String
+  country       String
+  currency      String
+  commissionPct Int
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  owner           User             @relation("VendorOwner", fields: [ownerUserId], references: [id])
+  members         VendorMember[]
+  products        Product[]
+  orders          Order[]
+  pickupLocations PickupLocation[]
+  shippingRates   ShippingRate[]
+  promotions      Promotion[]
+  Cart            Cart[]
+  chatThreads     ChatThread[]
+  ledgerEntries   VendorLedgerEntry[]
+  payoutItems     VendorPayoutItem[]
+}
+
+model VendorMember {
+  id       String @id @default(cuid())
+  vendorId String
+  userId   String
+  role     String
+
+  vendor Vendor @relation(fields: [vendorId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@unique([vendorId, userId])
+}
+
+model Category {
+  id       String  @id @default(cuid())
+  name     String
+  en_name  String  @default("")
+  mm_name  String  @default("")
+  slug     String  @unique
+  parentId String?
+
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryTree")
+  products Product[]
+
+  @@index([slug])
+}
+
+model SustainabilityTag {
+  id          String  @id @default(cuid())
+  name        String
+  en_name     String  @default("")
+  mm_name     String  @default("")
+  slug        String  @unique
+  description String?
+  active      Boolean @default(true)
+
+  products ProductTag[]
+
+  @@index([slug])
+}
+
+model Product {
+  id          String        @id @default(cuid())
+  vendorId    String
+  categoryId  String
+  title       String
+  description String
+  status      ProductStatus
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  vendor   Vendor           @relation(fields: [vendorId], references: [id])
+  category Category         @relation(fields: [categoryId], references: [id])
+  variants ProductVariant[]
+  images   ProductImage[]
+  tags     ProductTag[]
+  wishlistItems WishlistItem[]
+
+  @@index([vendorId])
+  @@index([categoryId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model WishlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([userId, productId])
+  @@index([userId, createdAt])
+  @@index([productId])
+}
+
+model ProductVariant {
+  id          String   @id @default(cuid())
+  productId   String
+  sku         String   @unique
+  options     Json
+  price       Int
+  currency    String
+  stockQty    Int
+  reservedQty Int      @default(0)
+  weightG     Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  product    Product     @relation(fields: [productId], references: [id])
+  orderItems OrderItem[]
+  cartItems  CartItem[]
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  productId String
+  url       String
+  altText   String?
+  sortOrder Int
+
+  product Product @relation(fields: [productId], references: [id])
+}
+
+model ProductTag {
+  id        String @id @default(cuid())
+  productId String
+  tagId     String
+
+  product Product           @relation(fields: [productId], references: [id])
+  tag     SustainabilityTag @relation(fields: [tagId], references: [id])
+
+  @@unique([productId, tagId])
+}
+
+model Address {
+  id      String  @id @default(cuid())
+  userId  String
+  name    String
+  line1   String
+  line2   String?
+  city    String
+  state   String?
+  postal  String
+  country String
+  phone   String?
+
+  user   User    @relation(fields: [userId], references: [id])
+  orders Order[]
+}
+
+model Cart {
+  id        String   @id @default(cuid())
+  userId    String
+  vendorId  String
+  currency  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User       @relation(fields: [userId], references: [id])
+  vendor Vendor     @relation(fields: [vendorId], references: [id])
+  items  CartItem[]
+
+  @@index([userId])
+}
+
+model CartItem {
+  id        String @id @default(cuid())
+  cartId    String
+  variantId String
+  qty       Int
+  unitPrice Int
+
+  cart    Cart           @relation(fields: [cartId], references: [id])
+  variant ProductVariant @relation(fields: [variantId], references: [id])
+
+  @@index([cartId])
+}
+
+model Order {
+  id               String          @id @default(cuid())
+  userId           String
+  vendorId         String
+  status           OrderStatus
+  currency         String
+  subtotal         Int
+  shippingFee      Int
+  taxAmount        Int
+  discountAmount   Int
+  total            Int
+  fulfillment      FulfillmentType
+  shippingAddrId   String?
+  pickupLocId      String?
+  paymentExpiresAt DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  user           User            @relation(fields: [userId], references: [id])
+  vendor         Vendor          @relation(fields: [vendorId], references: [id])
+  shippingAddr   Address?        @relation(fields: [shippingAddrId], references: [id])
+  pickupLocation PickupLocation? @relation(fields: [pickupLocId], references: [id])
+  items          OrderItem[]
+  payments       Payment[]
+  returns        ReturnRequest[]
+  chatThread     ChatThread?
+  ledgerEntries  VendorLedgerEntry[]
+
+  @@index([status])
+  @@index([userId])
+  @@index([vendorId])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id        String @id @default(cuid())
+  orderId   String
+  variantId String
+  qty       Int
+  unitPrice Int
+  lineTotal Int
+
+  order   Order          @relation(fields: [orderId], references: [id])
+  variant ProductVariant @relation(fields: [variantId], references: [id])
+  review  Review?
+
+  @@index([orderId])
+}
+
+model Payment {
+  id          String          @id @default(cuid())
+  orderId     String
+  provider    PaymentProvider
+  providerRef String
+  amount      Int
+  currency    String
+  status      PaymentStatus
+  createdAt   DateTime        @default(now())
+
+  order         Order               @relation(fields: [orderId], references: [id])
+  ledgerEntries VendorLedgerEntry[]
+}
+
+model ReturnRequest {
+  id             String              @id @default(cuid())
+  orderId        String
+  reason         String
+  status         ReturnRequestStatus
+  requestedAt    DateTime            @default(now())
+  resolvedAt     DateTime?
+  refundAmount   Int?
+  refundProvider PaymentProvider?
+  refundRef      String?
+  notes          String?
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+  @@index([status])
+}
+
+model Review {
+  id          String   @id @default(cuid())
+  orderItemId String   @unique
+  rating      Int
+  comment     String?
+  createdAt   DateTime @default(now())
+
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id])
+}
+
+model Promotion {
+  id       String   @id @default(cuid())
+  vendorId String?
+  code     String   @unique
+  type     String
+  amount   Int
+  startsAt DateTime
+  endsAt   DateTime
+  minOrder Int?
+
+  vendor Vendor? @relation(fields: [vendorId], references: [id])
+}
+
+model BlogPost {
+  id          String   @id @default(cuid())
+  title       String
+  slug        String   @unique
+  excerpt     String
+  content     String
+  coverImage  String?
+  publishedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([publishedAt, createdAt])
+}
+
+model PickupLocation {
+  id       String  @id @default(cuid())
+  vendorId String
+  name     String
+  line1    String
+  city     String
+  state    String?
+  country  String
+  hours    String?
+
+  vendor Vendor  @relation(fields: [vendorId], references: [id])
+  orders Order[]
+}
+
+model ShippingRate {
+  id        String   @id @default(cuid())
+  vendorId  String
+  country   String
+  flatRate  Int
+  currency  String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendor Vendor @relation(fields: [vendorId], references: [id])
+
+  @@unique([vendorId, country])
+  @@index([vendorId, active])
+}
+
+model VendorLedgerEntry {
+  id        String               @id @default(cuid())
+  vendorId  String
+  orderId   String?
+  paymentId String?
+  type      VendorLedgerEntryType
+  amount    Int
+  currency  String
+  note      String?
+  createdAt DateTime             @default(now())
+
+  vendor  Vendor   @relation(fields: [vendorId], references: [id])
+  order   Order?   @relation(fields: [orderId], references: [id])
+  payment Payment? @relation(fields: [paymentId], references: [id])
+
+  @@index([vendorId, createdAt])
+  @@index([paymentId, type])
+}
+
+model VendorPayoutBatch {
+  id          String                 @id @default(cuid())
+  periodStart DateTime
+  periodEnd   DateTime
+  status      VendorPayoutBatchStatus
+  createdAt   DateTime               @default(now())
+
+  items VendorPayoutItem[]
+
+  @@unique([periodStart, periodEnd])
+}
+
+model VendorPayoutItem {
+  id                String                @id @default(cuid())
+  batchId           String
+  vendorId          String
+  currency          String
+  grossAmount       Int
+  refundAdjustments Int
+  netAmount         Int
+  status            VendorPayoutItemStatus
+  createdAt         DateTime              @default(now())
+
+  batch  VendorPayoutBatch @relation(fields: [batchId], references: [id])
+  vendor Vendor            @relation(fields: [vendorId], references: [id])
+
+  @@index([batchId])
+  @@index([vendorId, currency])
+}
+
+model NotificationDelivery {
+  id             String                   @id @default(cuid())
+  notificationId String
+  channel        NotificationChannel
+  provider       String
+  status         NotificationDeliveryStatus
+  providerRef    String?
+  error          String?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  notification Notification @relation(fields: [notificationId], references: [id])
+
+  @@unique([notificationId, channel])
+  @@index([status, createdAt])
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  userAgent String?
+  ip        String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  payload   Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user       User                   @relation(fields: [userId], references: [id])
+  deliveries NotificationDelivery[]
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+}
+
+model ChatThread {
+  id             String         @id @default(cuid())
+  orderId        String         @unique
+  customerUserId String
+  vendorId       String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  order      Order           @relation(fields: [orderId], references: [id])
+  customer   User            @relation("CustomerThreads", fields: [customerUserId], references: [id])
+  vendor     Vendor          @relation(fields: [vendorId], references: [id])
+  messages   ChatMessage[]
+  readStates ChatReadState[]
+
+  @@index([customerUserId])
+  @@index([vendorId])
+}
+
+model ChatMessage {
+  id           String   @id @default(cuid())
+  threadId     String
+  senderUserId String
+  body         String
+  createdAt    DateTime @default(now())
+
+  thread ChatThread @relation(fields: [threadId], references: [id])
+  sender User       @relation(fields: [senderUserId], references: [id])
+
+  @@index([threadId, createdAt])
+  @@index([senderUserId])
+}
+
+model ChatReadState {
+  id                String   @id @default(cuid())
+  threadId          String
+  userId            String
+  lastReadMessageId String?
+  lastReadAt        DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  thread ChatThread @relation(fields: [threadId], references: [id])
+  user   User       @relation(fields: [userId], references: [id])
+
+  @@unique([threadId, userId])
+  @@index([userId, updatedAt])
+}

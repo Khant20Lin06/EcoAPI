@@ -1,0 +1,2 @@
+﻿export const DEFAULT_RETURN_WINDOW_DAYS = 30;
+export const STOCK_RESERVATION_MINUTES = 15;
